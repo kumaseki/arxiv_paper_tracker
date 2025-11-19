@@ -502,3 +502,62 @@
 
 ---
 
+
+
+## ArXiv论文 - 最近5天 (截至 2025-11-19)
+
+### ARC Is a Vision Problem!
+**作者**: Keya Hu, Ali Cy, Linlu Qiu, Xiaoman Delores Ding, Runqian Wang, Yeyin Eva Zhu, Jacob Andreas, Kaiming He
+**类别**: cs.CV, cs.AI, cs.LG
+**发布日期**: 2025-11-18
+**链接**: http://arxiv.org/abs/2511.14761v1
+**相关度**: ⭐⭐⭐ (相关度分数: 50.0)
+
+**论文分析出错**: No API key provided. You can set your API key in code using 'openai.api_key = <API-KEY>', or you can set the environment variable OPENAI_API_KEY=<API-KEY>). If your API key is stored in a file, you can point the openai module at it with 'openai.api_key_path = <PATH>'. You can generate API keys in the OpenAI web interface. See https://platform.openai.com/account/api-keys for details.
+
+---
+
+### UniGen-1.5: Enhancing Image Generation and Editing through Reward Unification in Reinforcement Learning
+**作者**: Rui Tian, Mingfei Gao, Haiming Gang, Jiasen Lu, Zhe Gan, Yinfei Yang, Zuxuan Wu, Afshin Dehghan
+**类别**: cs.CV
+**发布日期**: 2025-11-18
+**链接**: http://arxiv.org/abs/2511.14760v1
+**相关度**: ⭐⭐⭐ (相关度分数: 50.0)
+
+**论文分析出错**: No API key provided. You can set your API key in code using 'openai.api_key = <API-KEY>', or you can set the environment variable OPENAI_API_KEY=<API-KEY>). If your API key is stored in a file, you can point the openai module at it with 'openai.api_key_path = <PATH>'. You can generate API keys in the OpenAI web interface. See https://platform.openai.com/account/api-keys for details.
+
+---
+
+### SparseST: Exploiting Data Sparsity in Spatiotemporal Modeling and Prediction
+**作者**: Junfeng Wu, Hadjer Benmeziane, Kaoutar El Maghraoui, Liu Liu, Yinan Wang
+**类别**: cs.LG, cs.CE
+**发布日期**: 2025-11-18
+**链接**: http://arxiv.org/abs/2511.14753v1
+**相关度**: ⭐⭐⭐ (相关度分数: 50.0)
+
+**论文分析出错**: No API key provided. You can set your API key in code using 'openai.api_key = <API-KEY>', or you can set the environment variable OPENAI_API_KEY=<API-KEY>). If your API key is stored in a file, you can point the openai module at it with 'openai.api_key_path = <PATH>'. You can generate API keys in the OpenAI web interface. See https://platform.openai.com/account/api-keys for details.
+
+---
+
+### Co-Me: Confidence-Guided Token Merging for Visual Geometric Transformers
+**作者**: Yutian Chen, Yuheng Qiu, Ruogu Li, Ali Agha, Shayegan Omidshafiei, Jay Patrikar, Sebastian Scherer
+**类别**: cs.CV, cs.RO
+**发布日期**: 2025-11-18
+**链接**: http://arxiv.org/abs/2511.14751v1
+**相关度**: ⭐⭐⭐ (相关度分数: 50.0)
+
+**论文分析出错**: No API key provided. You can set your API key in code using 'openai.api_key = <API-KEY>', or you can set the environment variable OPENAI_API_KEY=<API-KEY>). If your API key is stored in a file, you can point the openai module at it with 'openai.api_key_path = <PATH>'. You can generate API keys in the OpenAI web interface. See https://platform.openai.com/account/api-keys for details.
+
+---
+
+### Vision Large Language Models Are Good Noise Handlers in Engagement Analysis
+**作者**: Alexander Vedernikov, Puneet Kumar, Haoyu Chen, Tapio Seppänen, Xiaobai Li
+**类别**: cs.CV
+**发布日期**: 2025-11-18
+**链接**: http://arxiv.org/abs/2511.14749v1
+**相关度**: ⭐⭐⭐ (相关度分数: 50.0)
+
+**论文分析出错**: No API key provided. You can set your API key in code using 'openai.api_key = <API-KEY>', or you can set the environment variable OPENAI_API_KEY=<API-KEY>). If your API key is stored in a file, you can point the openai module at it with 'openai.api_key_path = <PATH>'. You can generate API keys in the OpenAI web interface. See https://platform.openai.com/account/api-keys for details.
+
+---
+

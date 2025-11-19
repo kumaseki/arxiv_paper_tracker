@@ -42,7 +42,7 @@ EMAIL_TO = [email.strip() for email in os.getenv("EMAIL_TO", "").split(",") if e
 PAPERS_DIR = Path("./papers")
 CONCLUSION_FILE = Path("./conclusion.md")
 CATEGORIES = ["cs.CE", "cs.AI", "cs.CV", "cs.DS", "cs.NI", "cs.SY", "cs.SI", "cs.CR"]
-MAX_PAPERS = 50  # 设置为1以便快速测试
+MAX_PAPERS = 20  # 设置为1以便快速测试
 
 # 配置OpenAI API用于DeepSeek
 openai.api_key = DEEPSEEK_API_KEY
@@ -57,187 +57,94 @@ def get_recent_papers(categories, max_results=MAX_PAPERS):
     """获取最近5天内发布的指定类别的论文"""
     # 计算最近5天的日期范围
     today = datetime.datetime.now()
-    five_days_ago = today - datetime.timedelta(days=5)
+    five_days_ago = today - datetime.timedelta(days=2)
     
     # 格式化ArXiv查询的日期
     start_date = five_days_ago.strftime('%Y%m%d')
     end_date = today.strftime('%Y%m%d')
     
     logger.info(f"日期范围: {five_days_ago} 到 {today}")
-    logger.info(f"格式化日期: {start_date} 到 {end_date}")
     
-    # 初始化test_results变量
-    test_results = []
+    # 创建查询字符串，搜索最近5天内发布的指定类别的论文
+    category_query = " OR ".join([f"cat:{cat}" for cat in categories])
+    date_range = f"submittedDate:[{start_date}000000 TO {end_date}235959]"
+    query = f"({category_query}) AND {date_range}"
     
-    # 先尝试简单的查询：只搜索一个类别，不设置日期限制
-    test_category = "cs.AI"
-    logger.info(f"先尝试简单查询：仅搜索{test_category}类别，不设置日期限制")
-    
-    # 直接使用requests访问API，避免arxiv库的HTTP重定向问题
     try:
+        # 直接使用requests访问API
         base_url = "https://export.arxiv.org/api/query"
-        test_params = {
-            "search_query": f"cat:{test_category}",
+        params = {
+            "search_query": query,
             "sortBy": "submittedDate",
             "sortOrder": "descending",
-            "max_results": 10
+            "max_results": max_results
         }
         
-        logger.info(f"使用requests直接访问API: {base_url}")
-        response = requests_session.get(base_url, params=test_params)
+        response = requests_session.get(base_url, params=params)
         response.raise_for_status()
-        logger.info(f"API请求成功，状态码: {response.status_code}")
         
         # 解析XML响应
         import xml.etree.ElementTree as ET
         root = ET.fromstring(response.text)
         entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
-        logger.info(f"从XML响应中解析到{len(entries)}篇论文")
+        logger.info(f"找到{len(entries)}篇符合条件的论文")
         
-        # 打印前几篇论文的信息
+        # 定义Paper和Author类
+        class Paper:
+            def __init__(self, title, published, categories, entry_id, authors, summary):
+                self.title = title
+                self.published = published
+                self.categories = categories
+                self.entry_id = entry_id
+                self.authors = authors
+                self.summary = summary
+                self.relevance_score = 0  # 用于后续相关度评分
+                self.relevance_stars = ""
+                
+            def get_short_id(self):
+                # 从entry_id中提取短ID
+                return entry_id.split('/')[-1].split('v')[0]
+                
+            def download_pdf(self, filename):
+                # 构建PDF URL并下载
+                pdf_url = f"https://arxiv.org/pdf/{self.get_short_id()}.pdf"
+                logger.info(f"正在下载PDF: {pdf_url} 到 {filename}")
+                pdf_response = requests_session.get(pdf_url)
+                pdf_response.raise_for_status()
+                with open(filename, 'wb') as f:
+                    f.write(pdf_response.content)
+        
+        class Author:
+            def __init__(self, name):
+                self.name = name
+        
+        # 转换XML条目为Paper对象
+        paper_objects = []
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
-        for i, entry in enumerate(entries[:3]):
+        for entry in entries:
+            # 提取必要信息
             title = entry.find('atom:title', ns).text.strip()
-            published = entry.find('atom:published', ns).text
+            published_str = entry.find('atom:published', ns).text
+            published = datetime.datetime.fromisoformat(published_str.replace('Z', '+00:00'))
             categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
-            logger.info(f"论文{i+1}: {title} ({published}) - {categories}")
+            entry_id = entry.find('atom:id', ns).text
+            summary = entry.find('atom:summary', ns).text.strip()
             
-        # 如果找到论文，设置test_results为非空列表，表示查询成功
-        if entries:
-            test_results = entries
+            # 提取作者信息
+            authors = []
+            for author_elem in entry.findall('atom:author', ns):
+                name = author_elem.find('atom:name', ns).text
+                authors.append(Author(name))
             
+            # 创建Paper对象
+            paper = Paper(title, published, categories, entry_id, authors, summary)
+            paper_objects.append(paper)
+        
+        return paper_objects
+        
     except Exception as e:
-        logger.error(f"简单查询出错: {str(e)}", exc_info=True)
-    
-    # 如果简单查询成功，再尝试原始的多类别+日期范围查询
-    if len(test_results) > 0:
-        # 创建查询字符串，搜索最近5天内发布的指定类别的论文
-        category_query = " OR ".join([f"cat:{cat}" for cat in categories])
-        date_range = f"submittedDate:[{start_date}000000 TO {end_date}235959]"
-        query = f"({category_query}) AND {date_range}"
-        
-        logger.info(f"\n尝试完整查询: {query}")
-        
-        try:
-            # 直接使用requests访问完整查询API
-            base_url = "https://export.arxiv.org/api/query"
-            full_params = {
-                "search_query": query,
-                "sortBy": "submittedDate",
-                "sortOrder": "descending",
-                "max_results": max_results
-            }
-            
-            logger.info(f"使用requests访问完整查询API")
-            response = requests_session.get(base_url, params=full_params)
-            response.raise_for_status()
-            logger.info(f"完整查询API请求成功，状态码: {response.status_code}")
-            
-            # 解析XML响应
-            import xml.etree.ElementTree as ET
-            root = ET.fromstring(response.text)
-            entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
-            logger.info(f"完整查询结果: 找到{len(entries)}篇符合条件的论文")
-            
-            # 打印找到的论文信息
-            ns = {'atom': 'http://www.w3.org/2005/Atom'}
-            for i, entry in enumerate(entries):
-                title = entry.find('atom:title', ns).text.strip()
-                published = entry.find('atom:published', ns).text
-                categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
-                logger.info(f"完整查询论文{i+1}: {title} ({published}) - {categories}")
-            
-            # 创建模拟的Paper对象列表，包含所需的属性
-            class Paper:
-                def __init__(self, title, published, categories, entry_id, authors, summary):
-                    self.title = title
-                    self.published = published
-                    self.categories = categories
-                    self.entry_id = entry_id
-                    self.authors = authors
-                    self.summary = summary
-                    
-                def get_short_id(self):
-                    # 从entry_id中提取短ID
-                    return entry_id.split('/')[-1].split('v')[0]
-                    
-                def download_pdf(self, filename):
-                    # 构建PDF URL并下载
-                    pdf_url = f"https://arxiv.org/pdf/{self.get_short_id()}.pdf"
-                    logger.info(f"正在下载PDF: {pdf_url} 到 {filename}")
-                    pdf_response = requests_session.get(pdf_url)
-                    pdf_response.raise_for_status()
-                    with open(filename, 'wb') as f:
-                        f.write(pdf_response.content)
-            
-            # 转换XML条目为Paper对象
-            paper_objects = []
-            ns = {'atom': 'http://www.w3.org/2005/Atom'}
-            for entry in entries:
-                # 提取必要信息
-                title = entry.find('atom:title', ns).text.strip()
-                published_str = entry.find('atom:published', ns).text
-                published = datetime.datetime.fromisoformat(published_str.replace('Z', '+00:00'))
-                categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
-                entry_id = entry.find('atom:id', ns).text
-                summary = entry.find('atom:summary', ns).text.strip()
-                
-                # 提取作者信息
-                class Author:
-                    def __init__(self, name):
-                        self.name = name
-                
-                authors = []
-                for author_elem in entry.findall('atom:author', ns):
-                    name = author_elem.find('atom:name', ns).text
-                    authors.append(Author(name))
-                
-                # 创建Paper对象
-                paper = Paper(title, published, categories, entry_id, authors, summary)
-                paper_objects.append(paper)
-            
-            return paper_objects
-            
-        except Exception as e:
-            logger.error(f"完整查询出错: {str(e)}", exc_info=True)
-    
-    # 备用方法：直接使用requests调用API并打印原始响应
-    try:
-        # 构建直接的API URL
-        base_url = "https://export.arxiv.org/api/query"
-        # 先尝试简单查询
-        test_params = {
-            "search_query": f"cat:{test_category}",
-            "sortBy": "submittedDate",
-            "sortOrder": "descending",
-            "max_results": 5
-        }
-        
-        logger.info(f"\n使用备用方法直接访问API: {base_url}")
-        response = requests_session.get(base_url, params=test_params)
-        response.raise_for_status()
-        logger.info(f"备用方法API请求成功，状态码: {response.status_code}")
-        # 打印响应的前1000个字符，帮助调试
-        logger.info(f"API响应前1000字符: {response.text[:1000]}...")
-        
-        # 尝试直接解析XML响应中的条目数
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(response.text)
-        entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
-        logger.info(f"从XML响应中解析到{len(entries)}篇论文")
-        
-        # 打印前几篇论文的标题
-        ns = {'atom': 'http://www.w3.org/2005/Atom'}
-        for i, entry in enumerate(entries[:3]):
-            title = entry.find('atom:title', ns).text.strip()
-            published = entry.find('atom:published', ns).text
-            categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
-            logger.info(f"备用方法论文{i+1}: {title} ({published}) - {categories}")
-            
-    except Exception as e2:
-        logger.error(f"备用方法也失败: {str(e2)}", exc_info=True)
-    
-    return []
+        logger.error(f"获取论文失败: {str(e)}", exc_info=True)
+        return []
 
 def download_paper(paper, output_dir):
     """将论文PDF下载到指定目录"""
@@ -257,34 +164,38 @@ def download_paper(paper, output_dir):
         logger.error(f"下载论文失败 {paper.title}: {str(e)}")
         return None
 
-def analyze_paper_with_deepseek(pdf_path, paper):
-    """使用DeepSeek API分析论文（使用OpenAI 0.28.0兼容格式）"""
+def analyze_paper_with_deepseek(paper):
+    """使用DeepSeek API分析论文摘要（减少token消耗）"""
     try:
         # 从Author对象中提取作者名
         author_names = [author.name for author in paper.authors]
         
+        # 使用摘要而非PDF内容，减少token消耗
+        # 只保留必要信息，确保提示词简洁高效
         prompt = f"""
         论文标题: {paper.title}
         作者: {', '.join(author_names)}
         类别: {', '.join(paper.categories)}
         发布时间: {paper.published}
         
+        论文摘要:
+        {paper.summary}
+        
         请分析这篇研究论文并提供：
         1. 简明摘要（3-5句话）
         2. 主要贡献和创新点
-        3. 研究方法，具体采用的技术，工具，数据集
-        4. 实验结果，包括数据集，实验设置，实验结果，实验结论
-        5. 对领域的潜在影响
-        6. 局限性或未来工作方向
+        3. 研究方法概述
+        4. 实验结果简述
+        5. 潜在影响
         
-        请使用中文回答，并以纯文本，分自然段格式输出。
+        请使用中文回答，保持简洁。
         """
         
         logger.info(f"正在分析论文: {paper.title}")
         response = openai.ChatCompletion.create(
             model="deepseek-chat",
             messages=[
-                {"role": "system", "content": "你是一位专门总结和分析学术论文的研究助手。请使用中文回复。"},
+                {"role": "system", "content": "你是一位专门总结和分析学术论文的研究助手。请使用中文回复，保持简洁明了。"},
                 {"role": "user", "content": prompt},
             ]
         )
@@ -296,8 +207,125 @@ def analyze_paper_with_deepseek(pdf_path, paper):
         logger.error(f"分析论文失败 {paper.title}: {str(e)}")
         return f"**论文分析出错**: {str(e)}"
 
+def get_domain_keywords():
+    """获取用户输入的自定义领域关键词"""
+    try:
+        # 从环境变量读取自定义关键词，支持通过GitHub secrets设置
+        custom_keywords = os.getenv("DOMAIN_KEYWORDS", "")
+        if custom_keywords.strip():
+            logger.info(f"使用GitHub secrets中的自定义领域关键词")
+            return custom_keywords.strip()
+        else:
+            # 如果没有设置，使用默认关键词
+            default_keywords = "machine learning, deep learning, artificial intelligence, neural network"
+            logger.info(f"使用默认领域关键词: {default_keywords}")
+            return default_keywords
+    except Exception as e:
+        logger.error(f"获取领域关键词出错: {str(e)}")
+        return "machine learning, deep learning, artificial intelligence, neural network"
+
+def rank_papers_with_deepseek(papers, domain_keywords):
+    """使用DeepSeek API根据领域关键词对论文进行相关度排序"""
+    logger.info(f"使用DeepSeek API对{len(papers)}篇论文进行相关度排序")
+    
+    try:
+        # 准备论文数据，格式化为JSON字符串以便API处理
+        papers_data = []
+        for i, paper in enumerate(papers, 1):
+            # 从Author对象中提取作者名
+            author_names = [author.name for author in paper.authors]
+            
+            papers_data.append({
+                "id": i,
+                "title": paper.title,
+                "summary": paper.summary,
+                "authors": author_names,
+                "categories": paper.categories
+            })
+        
+        # 构建提示词，让DeepSeek API进行排序
+        prompt = f"""
+        请根据以下研究领域关键词，对提供的学术论文按照相关度进行降序排序：
+        
+        研究领域关键词: {domain_keywords}
+        
+        论文列表:
+        {papers_data}
+        
+        请返回排序后的论文ID列表，格式为[1, 3, 2, ...]。
+        同时为每篇论文提供1-5星的相关度评级和简短理由。
+        请确保回答格式为:
+        
+        排序结果:
+        [排序后的ID列表]
+        
+        相关度评级:
+        论文1: ⭐⭐⭐⭐⭐ - 理由
+        论文2: ⭐⭐⭐ - 理由
+        ...
+        """
+        
+        logger.info("正在调用DeepSeek API进行论文排序")
+        response = openai.ChatCompletion.create(
+            model="deepseek-chat",
+            messages=[
+                {"role": "system", "content": "你是一位专门进行学术论文相关度分析和排序的研究助手。请根据用户提供的研究领域关键词，对论文进行精准排序。"},
+                {"role": "user", "content": prompt},
+            ]
+        )
+        
+        analysis_result = response.choices[0].message.content
+        logger.info("DeepSeek API排序完成")
+        
+        # 解析排序结果
+        # 提取排序后的ID列表
+        import re
+        ranking_match = re.search(r'排序结果:\s*\[(.*?)\]', analysis_result, re.DOTALL)
+        if ranking_match:
+            # 解析排序后的ID
+            rank_str = ranking_match.group(1).strip()
+            if rank_str:
+                sorted_indices = [int(id.strip()) - 1 for id in rank_str.split(',')]  # 转换为0-index
+                # 创建排序后的论文列表
+                ranked_papers = [papers[i] for i in sorted_indices]
+            else:
+                # 如果解析失败，返回原始列表
+                ranked_papers = papers
+        else:
+            # 如果解析失败，返回原始列表
+            ranked_papers = papers
+        
+        # 提取并设置相关度评级
+        rating_matches = re.findall(r'论文(\d+):\s*(\S+)\s*-\s*(.+)', analysis_result)
+        for paper_id, stars, reason in rating_matches:
+            idx = int(paper_id) - 1  # 转换为0-index
+            if 0 <= idx < len(papers):
+                papers[idx].relevance_stars = stars
+                # 从星级转换为分数
+                stars_count = stars.count('⭐')
+                papers[idx].relevance_score = stars_count * 20
+        
+        # 为没有评级的论文设置默认值
+        for paper in papers:
+            if not hasattr(paper, 'relevance_score') or paper.relevance_score == 0:
+                paper.relevance_score = 50
+                paper.relevance_stars = "⭐⭐⭐"
+        
+        logger.info(f"已完成论文排序，共{len(ranked_papers)}篇")
+        for i, paper in enumerate(ranked_papers[:5], 1):
+            logger.info(f"Top-{i}: {paper.title} ({paper.relevance_score:.1f}分, {paper.relevance_stars})")
+        
+        return ranked_papers
+    except Exception as e:
+        logger.error(f"使用DeepSeek API排序论文失败: {str(e)}")
+        # 出错时返回原始列表，但设置默认相关度
+        for paper in papers:
+            paper.relevance_score = 50
+            paper.relevance_stars = "⭐⭐⭐"
+        return papers
+
 def write_to_conclusion(papers_analyses):
-    """将分析结果写入conclusion.md"""
+    """将分析结果写入conclusion.md，包含相关度信息"""
     today = datetime.datetime.now().strftime('%Y-%m-%d')
     
     # 创建或追加到结果文件
@@ -312,17 +340,19 @@ def write_to_conclusion(papers_analyses):
             f.write(f"**作者**: {', '.join(author_names)}\n")
             f.write(f"**类别**: {', '.join(paper.categories)}\n")
             f.write(f"**发布日期**: {paper.published.strftime('%Y-%m-%d')}\n")
-            f.write(f"**链接**: {paper.entry_id}\n\n")
+            f.write(f"**链接**: {paper.entry_id}\n")
+            f.write(f"**相关度**: {paper.relevance_stars} (相关度分数: {paper.relevance_score:.1f})\n\n")
             f.write(f"{analysis}\n\n")
             f.write("---\n\n")
     
     logger.info(f"分析结果已写入 {CONCLUSION_FILE}")
 
 def format_email_content(papers_analyses):
-    """格式化邮件内容，只包含当天分析的论文"""
+    """格式化邮件内容，只包含当天分析的论文，突出显示相关度"""
     today = datetime.datetime.now().strftime('%Y-%m-%d')
     
     content = f"## 今日ArXiv论文分析报告 ({today})\n\n"
+    content += f"### 按相关度排序的Top论文\n\n"
     
     for paper, analysis in papers_analyses:
         # 从Author对象中提取作者名
@@ -332,7 +362,8 @@ def format_email_content(papers_analyses):
         content += f"**作者**: {', '.join(author_names)}\n"
         content += f"**类别**: {', '.join(paper.categories)}\n"
         content += f"**发布日期**: {paper.published.strftime('%Y-%m-%d')}\n"
-        content += f"**链接**: {paper.entry_id}\n\n"
+        content += f"**链接**: {paper.entry_id}\n"
+        content += f"**相关度**: {paper.relevance_stars} (相关度分数: {paper.relevance_score:.1f})\n\n"
         content += f"{analysis}\n\n"
         content += "---\n\n"
     
@@ -395,7 +426,7 @@ def send_email(content):
         logger.error(f"发送邮件失败: {str(e)}")
 
 def main():
-    logger.info("开始ArXiv论文跟踪")
+    logger.info("开始ArXiv论文跟踪与分析")
     
     # 获取最近5天的论文
     papers = get_recent_papers(CATEGORIES, MAX_PAPERS)
@@ -405,32 +436,40 @@ def main():
         logger.info("所选时间段没有找到论文。退出。")
         return
     
-    # 处理每篇论文
-    papers_analyses = []
-    for i, paper in enumerate(papers, 1):
-        logger.info(f"正在处理论文 {i}/{len(papers)}: {paper.title}")
-        # 下载论文
-        pdf_path = download_paper(paper, PAPERS_DIR)
-        if pdf_path:
-            # 休眠以避免达到API速率限制
-            time.sleep(2)
-            
-            # 分析论文
-            analysis = analyze_paper_with_deepseek(pdf_path, paper)
-            papers_analyses.append((paper, analysis))
-            
-            # 分析完成后删除PDF文件
-            delete_pdf(pdf_path)
+    # 获取领域关键词（来自GitHub secrets）
+    domain_keywords = get_domain_keywords()
+    logger.info("已获取领域关键词，准备使用DeepSeek API进行论文排序")
     
-    # 将分析结果写入conclusion.md（包含所有历史记录）
+    # 使用DeepSeek API按相关度排序论文
+    ranked_papers = rank_papers_with_deepseek(papers, domain_keywords)
+    
+    # 只处理top-5相关论文
+    TOP_PAPERS_COUNT = 5
+    top_papers = ranked_papers[:TOP_PAPERS_COUNT]
+    logger.info(f"将处理Top-{TOP_PAPERS_COUNT}相关论文")
+    
+    # 处理每篇论文（不再下载PDF，直接使用摘要）
+    papers_analyses = []
+    for i, paper in enumerate(top_papers, 1):
+        logger.info(f"正在分析论文 {i}/{len(top_papers)}: {paper.title}")
+        logger.info(f"相关度: {paper.relevance_stars} ({paper.relevance_score:.1f}分)")
+        
+        # 分析论文（使用摘要而非PDF）
+        analysis = analyze_paper_with_deepseek(paper)
+        papers_analyses.append((paper, analysis))
+        
+        # 休眠以避免达到API速率限制
+        time.sleep(2)
+    
+    # 将分析结果写入conclusion.md
     write_to_conclusion(papers_analyses)
     
-    # 发送邮件（只包含当天分析的论文）
+    # 发送邮件
     email_content = format_email_content(papers_analyses)
     send_email(email_content)
     
     logger.info("ArXiv论文追踪和分析完成")
-    logger.info(f"结果已保存至 {CONCLUSION_FILE.absolute()}")
+    logger.info(f"已处理Top-{TOP_PAPERS_COUNT}相关论文，结果已保存至 {CONCLUSION_FILE.absolute()}")
 
 if __name__ == "__main__":
     main()
