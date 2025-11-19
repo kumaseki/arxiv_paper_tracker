@@ -57,59 +57,187 @@ def get_recent_papers(categories, max_results=MAX_PAPERS):
     """获取最近5天内发布的指定类别的论文"""
     # 计算最近5天的日期范围
     today = datetime.datetime.now()
-    five_days_ago = today - datetime.timedelta(days=2)
+    five_days_ago = today - datetime.timedelta(days=5)
     
     # 格式化ArXiv查询的日期
     start_date = five_days_ago.strftime('%Y%m%d')
     end_date = today.strftime('%Y%m%d')
     
-    # 创建查询字符串，搜索最近5天内发布的指定类别的论文
-    category_query = " OR ".join([f"cat:{cat}" for cat in categories])
-    date_range = f"submittedDate:[{start_date}000000 TO {end_date}235959]"
-    query = f"({category_query}) AND {date_range}"
+    logger.info(f"日期范围: {five_days_ago} 到 {today}")
+    logger.info(f"格式化日期: {start_date} 到 {end_date}")
     
-    logger.info(f"正在搜索论文，查询条件: {query}")
+    # 初始化test_results变量
+    test_results = []
     
+    # 先尝试简单的查询：只搜索一个类别，不设置日期限制
+    test_category = "cs.AI"
+    logger.info(f"先尝试简单查询：仅搜索{test_category}类别，不设置日期限制")
+    
+    # 直接使用requests访问API，避免arxiv库的HTTP重定向问题
     try:
-        # 搜索ArXiv，使用session参数来处理重定向
-        search = arxiv.Search(
-            query=query,
-            max_results=max_results,
-            sort_by=arxiv.SortCriterion.SubmittedDate,
-            sort_order=arxiv.SortOrder.Descending
-        )
+        base_url = "https://export.arxiv.org/api/query"
+        test_params = {
+            "search_query": f"cat:{test_category}",
+            "sortBy": "submittedDate",
+            "sortOrder": "descending",
+            "max_results": 10
+        }
         
-        # 添加异常处理
-        results = []
-        for paper in search.results():
-            results.append(paper)
-            if len(results) >= max_results:
-                break
+        logger.info(f"使用requests直接访问API: {base_url}")
+        response = requests_session.get(base_url, params=test_params)
+        response.raise_for_status()
+        logger.info(f"API请求成功，状态码: {response.status_code}")
         
-        logger.info(f"找到{len(results)}篇符合条件的论文")
-        return results
+        # 解析XML响应
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(response.text)
+        entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+        logger.info(f"从XML响应中解析到{len(entries)}篇论文")
+        
+        # 打印前几篇论文的信息
+        ns = {'atom': 'http://www.w3.org/2005/Atom'}
+        for i, entry in enumerate(entries[:3]):
+            title = entry.find('atom:title', ns).text.strip()
+            published = entry.find('atom:published', ns).text
+            categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
+            logger.info(f"论文{i+1}: {title} ({published}) - {categories}")
+            
+        # 如果找到论文，设置test_results为非空列表，表示查询成功
+        if entries:
+            test_results = entries
+            
     except Exception as e:
-        logger.error(f"搜索论文时出错: {str(e)}")
-        # 如果出错，尝试直接使用requests库构建URL并处理重定向
+        logger.error(f"简单查询出错: {str(e)}", exc_info=True)
+    
+    # 如果简单查询成功，再尝试原始的多类别+日期范围查询
+    if len(test_results) > 0:
+        # 创建查询字符串，搜索最近5天内发布的指定类别的论文
+        category_query = " OR ".join([f"cat:{cat}" for cat in categories])
+        date_range = f"submittedDate:[{start_date}000000 TO {end_date}235959]"
+        query = f"({category_query}) AND {date_range}"
+        
+        logger.info(f"\n尝试完整查询: {query}")
+        
         try:
-            # 构建直接的API URL，使用https而不是http
+            # 直接使用requests访问完整查询API
             base_url = "https://export.arxiv.org/api/query"
-            params = {
+            full_params = {
                 "search_query": query,
                 "sortBy": "submittedDate",
                 "sortOrder": "descending",
                 "max_results": max_results
             }
             
-            logger.info(f"尝试使用备用方法，直接访问API: {base_url}")
-            response = requests_session.get(base_url, params=params)
+            logger.info(f"使用requests访问完整查询API")
+            response = requests_session.get(base_url, params=full_params)
             response.raise_for_status()
-            logger.info("备用方法API请求成功")
-            # 由于直接解析XML比较复杂，这里返回空列表让用户知道API访问成功但需要进一步解析
-            return []
-        except Exception as e2:
-            logger.error(f"备用方法也失败: {str(e2)}")
-            return []
+            logger.info(f"完整查询API请求成功，状态码: {response.status_code}")
+            
+            # 解析XML响应
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(response.text)
+            entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+            logger.info(f"完整查询结果: 找到{len(entries)}篇符合条件的论文")
+            
+            # 打印找到的论文信息
+            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+            for i, entry in enumerate(entries):
+                title = entry.find('atom:title', ns).text.strip()
+                published = entry.find('atom:published', ns).text
+                categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
+                logger.info(f"完整查询论文{i+1}: {title} ({published}) - {categories}")
+            
+            # 创建模拟的Paper对象列表，包含所需的属性
+            class Paper:
+                def __init__(self, title, published, categories, entry_id, authors, summary):
+                    self.title = title
+                    self.published = published
+                    self.categories = categories
+                    self.entry_id = entry_id
+                    self.authors = authors
+                    self.summary = summary
+                    
+                def get_short_id(self):
+                    # 从entry_id中提取短ID
+                    return entry_id.split('/')[-1].split('v')[0]
+                    
+                def download_pdf(self, filename):
+                    # 构建PDF URL并下载
+                    pdf_url = f"https://arxiv.org/pdf/{self.get_short_id()}.pdf"
+                    logger.info(f"正在下载PDF: {pdf_url} 到 {filename}")
+                    pdf_response = requests_session.get(pdf_url)
+                    pdf_response.raise_for_status()
+                    with open(filename, 'wb') as f:
+                        f.write(pdf_response.content)
+            
+            # 转换XML条目为Paper对象
+            paper_objects = []
+            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+            for entry in entries:
+                # 提取必要信息
+                title = entry.find('atom:title', ns).text.strip()
+                published_str = entry.find('atom:published', ns).text
+                published = datetime.datetime.fromisoformat(published_str.replace('Z', '+00:00'))
+                categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
+                entry_id = entry.find('atom:id', ns).text
+                summary = entry.find('atom:summary', ns).text.strip()
+                
+                # 提取作者信息
+                class Author:
+                    def __init__(self, name):
+                        self.name = name
+                
+                authors = []
+                for author_elem in entry.findall('atom:author', ns):
+                    name = author_elem.find('atom:name', ns).text
+                    authors.append(Author(name))
+                
+                # 创建Paper对象
+                paper = Paper(title, published, categories, entry_id, authors, summary)
+                paper_objects.append(paper)
+            
+            return paper_objects
+            
+        except Exception as e:
+            logger.error(f"完整查询出错: {str(e)}", exc_info=True)
+    
+    # 备用方法：直接使用requests调用API并打印原始响应
+    try:
+        # 构建直接的API URL
+        base_url = "https://export.arxiv.org/api/query"
+        # 先尝试简单查询
+        test_params = {
+            "search_query": f"cat:{test_category}",
+            "sortBy": "submittedDate",
+            "sortOrder": "descending",
+            "max_results": 5
+        }
+        
+        logger.info(f"\n使用备用方法直接访问API: {base_url}")
+        response = requests_session.get(base_url, params=test_params)
+        response.raise_for_status()
+        logger.info(f"备用方法API请求成功，状态码: {response.status_code}")
+        # 打印响应的前1000个字符，帮助调试
+        logger.info(f"API响应前1000字符: {response.text[:1000]}...")
+        
+        # 尝试直接解析XML响应中的条目数
+        import xml.etree.ElementTree as ET
+        root = ET.fromstring(response.text)
+        entries = root.findall('.//{http://www.w3.org/2005/Atom}entry')
+        logger.info(f"从XML响应中解析到{len(entries)}篇论文")
+        
+        # 打印前几篇论文的标题
+        ns = {'atom': 'http://www.w3.org/2005/Atom'}
+        for i, entry in enumerate(entries[:3]):
+            title = entry.find('atom:title', ns).text.strip()
+            published = entry.find('atom:published', ns).text
+            categories = [cat.attrib['term'] for cat in entry.findall('atom:category', ns)]
+            logger.info(f"备用方法论文{i+1}: {title} ({published}) - {categories}")
+            
+    except Exception as e2:
+        logger.error(f"备用方法也失败: {str(e2)}", exc_info=True)
+    
+    return []
 
 def download_paper(paper, output_dir):
     """将论文PDF下载到指定目录"""
