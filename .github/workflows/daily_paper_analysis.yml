@@ -41,7 +41,6 @@ jobs:
         SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
         EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
         EMAIL_TO: ${{ secrets.EMAIL_TO }}
-        DOMAIN_KEYWORDS: ${{ secrets.DOMAIN_KEYWORDS }}
       run: |
         cd src
         python main.py
@@ -52,4 +51,4 @@ jobs:
         git config --global user.email 'curryfromuestc@gmail.com'
         git add .
         git commit -m "Update paper analysis for $(date +'%Y-%m-%d')" || echo "No changes to commit"
-        git push
+        git push 
