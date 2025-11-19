@@ -61,15 +61,15 @@ def get_recent_papers(categories, max_results=MAX_PAPERS):
     """获取最近几天内发布的指定类别的论文"""
     # 计算日期范围
     today = datetime.datetime.now()
-    five_days_ago = today - datetime.timedelta(days=5)
+    start_date_obj = today - datetime.timedelta(days=5)  # 搜索最近5天的论文
     
     # 格式化ArXiv查询的日期
     start_date = start_date_obj.strftime('%Y%m%d')
     end_date = today.strftime('%Y%m%d')
     
-    logger.info(f"日期范围: {five_days_ago} 到 {today}")
+    logger.info(f"日期范围: {start_date_obj} 到 {today}")
     
-    # 创建查询字符串，搜索最近5天内发布的指定类别的论文
+    # 创建查询字符串，搜索指定日期范围内发布的指定类别的论文
     category_query = " OR ".join([f"cat:{cat}" for cat in categories])
     date_range = f"submittedDate:[{start_date}000000 TO {end_date}235959]"
     query = f"({category_query}) AND {date_range}"
