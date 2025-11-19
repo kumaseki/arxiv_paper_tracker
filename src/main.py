@@ -58,13 +58,13 @@ logger.info(f"论文将保存在: {PAPERS_DIR.absolute()}")
 logger.info(f"分析结果将写入: {CONCLUSION_FILE.absolute()}")
 
 def get_recent_papers(categories, max_results=MAX_PAPERS):
-    """获取最近5天内发布的指定类别的论文"""
-    # 计算最近5天的日期范围
+    """获取最近几天内发布的指定类别的论文"""
+    # 计算日期范围
     today = datetime.datetime.now()
     five_days_ago = today - datetime.timedelta(days=5)
     
     # 格式化ArXiv查询的日期
-    start_date = five_days_ago.strftime('%Y%m%d')
+    start_date = start_date_obj.strftime('%Y%m%d')
     end_date = today.strftime('%Y%m%d')
     
     logger.info(f"日期范围: {five_days_ago} 到 {today}")
