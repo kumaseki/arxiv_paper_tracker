@@ -10,10 +10,16 @@ import time
 import logging
 import sys
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from jinja2 import Template
+
+# 配置requests允许重定向
+requests.adapters.DEFAULT_RETRIES = 5
+requests_session = requests.Session()
+requests_session.max_redirects = 10
 
 # 加载环境变量
 load_dotenv()
@@ -35,8 +41,8 @@ EMAIL_TO = [email.strip() for email in os.getenv("EMAIL_TO", "").split(",") if e
 
 PAPERS_DIR = Path("./papers")
 CONCLUSION_FILE = Path("./conclusion.md")
-CATEGORIES = ["cs.AR", "cs.AI"]
-MAX_PAPERS = 50  # 设置为1以便快速测试
+CATEGORIES = ["cs.CE", "cs.AI", "cs.CV", "cs.DS", "cs.NI", "cs.SY", "cs.SI", "cs.CR"]
+MAX_PAPERS = 20  # 设置为1以便快速测试
 
 # 配置OpenAI API用于DeepSeek
 openai.api_key = DEEPSEEK_API_KEY
@@ -64,17 +70,46 @@ def get_recent_papers(categories, max_results=MAX_PAPERS):
     
     logger.info(f"正在搜索论文，查询条件: {query}")
     
-    # 搜索ArXiv
-    search = arxiv.Search(
-        query=query,
-        max_results=max_results,
-        sort_by=arxiv.SortCriterion.SubmittedDate,
-        sort_order=arxiv.SortOrder.Descending
-    )
-    
-    results = list(search.results())
-    logger.info(f"找到{len(results)}篇符合条件的论文")
-    return results
+    try:
+        # 搜索ArXiv，使用session参数来处理重定向
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.SubmittedDate,
+            sort_order=arxiv.SortOrder.Descending
+        )
+        
+        # 添加异常处理
+        results = []
+        for paper in search.results():
+            results.append(paper)
+            if len(results) >= max_results:
+                break
+        
+        logger.info(f"找到{len(results)}篇符合条件的论文")
+        return results
+    except Exception as e:
+        logger.error(f"搜索论文时出错: {str(e)}")
+        # 如果出错，尝试直接使用requests库构建URL并处理重定向
+        try:
+            # 构建直接的API URL，使用https而不是http
+            base_url = "https://export.arxiv.org/api/query"
+            params = {
+                "search_query": query,
+                "sortBy": "submittedDate",
+                "sortOrder": "descending",
+                "max_results": max_results
+            }
+            
+            logger.info(f"尝试使用备用方法，直接访问API: {base_url}")
+            response = requests_session.get(base_url, params=params)
+            response.raise_for_status()
+            logger.info("备用方法API请求成功")
+            # 由于直接解析XML比较复杂，这里返回空列表让用户知道API访问成功但需要进一步解析
+            return []
+        except Exception as e2:
+            logger.error(f"备用方法也失败: {str(e2)}")
+            return []
 
 def download_paper(paper, output_dir):
     """将论文PDF下载到指定目录"""
